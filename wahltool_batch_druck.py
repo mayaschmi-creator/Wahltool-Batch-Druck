@@ -60,7 +60,7 @@ class BrowserWorker(threading.Thread):
     def send(self, command, payload=None):
         self.commands.put((command, payload))
 
-        def run(self):
+    def run(self):
         try:
             from playwright.sync_api import sync_playwright
 
