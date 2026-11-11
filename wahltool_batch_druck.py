@@ -60,26 +60,44 @@ class BrowserWorker(threading.Thread):
     def send(self, command, payload=None):
         self.commands.put((command, payload))
 
-    def run(self):
+        def run(self):
         try:
             from playwright.sync_api import sync_playwright
 
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(
-                    channel="msedge", headless=False, args=["--kiosk-printing"]
+                    channel="msedge",
+                    headless=False,
+                    args=["--kiosk-printing"]
                 )
                 context = browser.new_context()
                 page = context.new_page()
-                self.events.put(("status", "Edge geöffnet. Bitte im Portal anmelden."))
+
+                self.events.put((
+                    "status",
+                    "Edge geöffnet. Bitte im Portal anmelden."
+                ))
+
                 while True:
                     command, payload = self.commands.get()
+
                     if command == "open":
-                        page.goto(payload, wait_until="domcontentloaded")
-                        self.events.put(("status", "Portal geöffnet. Bitte anmelden, dann Seiten suchen."))
-                elif command == "scan":
+                        page.goto(
+                            payload,
+                            wait_until="domcontentloaded"
+                        )
+                        self.events.put((
+                            "status",
+                            "Portal geöffnet. Bitte anmelden und "
+                            "die Wahlübersicht öffnen, dann Seiten suchen."
+                        ))
+
+                    elif command == "scan":
                         current_url = page.url
                         anchors = page.evaluate(
-                            """() => Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                            """() => Array.from(
+                                document.querySelectorAll('a[href]')
+                            ).map(a => ({
                                 href: a.href,
                                 text: a.innerText || '',
                                 title: a.getAttribute('title') || ''
@@ -87,14 +105,16 @@ class BrowserWorker(threading.Thread):
                         )
                         pages = extract_pages(current_url, anchors)
                         self.events.put(("pages", pages))
+
                     elif command == "print":
                         self._print_pages(page, payload)
+
                     elif command == "close":
                         browser.close()
                         return
+
         except Exception as error:
             self.events.put(("error", str(error)))
-
     def _print_pages(self, page, selected_pages):
         total = len(selected_pages)
         for index, selected in enumerate(selected_pages, start=1):
