@@ -1,0 +1,2 @@
+playwright>=1.50,<2.0
+pyinstaller>=6.10,<7.0
