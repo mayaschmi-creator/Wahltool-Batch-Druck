@@ -76,8 +76,8 @@ class BrowserWorker(threading.Thread):
                     if command == "open":
                         page.goto(payload, wait_until="domcontentloaded")
                         self.events.put(("status", "Portal geöffnet. Bitte anmelden, dann Seiten suchen."))
-                    elif command == "scan":
-                        page.goto(payload, wait_until="domcontentloaded")
+                elif command == "scan":
+                        current_url = page.url
                         anchors = page.evaluate(
                             """() => Array.from(document.querySelectorAll('a[href]')).map(a => ({
                                 href: a.href,
@@ -85,7 +85,7 @@ class BrowserWorker(threading.Thread):
                                 title: a.getAttribute('title') || ''
                             }))"""
                         )
-                        pages = extract_pages(payload, anchors)
+                        pages = extract_pages(current_url, anchors)
                         self.events.put(("pages", pages))
                     elif command == "print":
                         self._print_pages(page, payload)
@@ -112,7 +112,7 @@ class BrowserWorker(threading.Thread):
                 """() => Array.from(document.querySelectorAll(
                     'a[href], iframe[src], embed[src], object[data]'
                 )).map(element => ({
-                    href: element.href || element.data || '',
+                   href: element.href || element.src || element.data || '',
                     kind: element.tagName.toLowerCase()
                 }))"""
             )
