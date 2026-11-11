@@ -60,7 +60,7 @@ class BrowserWorker(threading.Thread):
     def send(self, command, payload=None):
         self.commands.put((command, payload))
 
-        def run(self):
+    def run(self):
         try:
             from playwright.sync_api import (
                 sync_playwright,
@@ -289,6 +289,9 @@ class BatchPrintApp:
                     if self.pages
                     else "Keine Unterseiten gefunden. Bitte im Portal anmelden und erneut suchen."
                 )
+            elif event == "scan_error":
+                self.status.set("Seitensuche fehlgeschlagen. Browser bleibt geöffnet.")
+                messagebox.showerror("Seitensuche", payload)
             elif event == "error":
                 self.status.set("Fehler beim Öffnen oder Drucken.")
                 self.open_button.configure(state="normal")
