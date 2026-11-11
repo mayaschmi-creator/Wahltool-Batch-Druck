@@ -179,7 +179,7 @@ class BatchPrintApp:
             return
         self.worker = BrowserWorker(self.events)
         self.worker.start()
-        self.worker.send("open", self.url.get().strip())
+        self.worker.send("open", self.url.strip())
         self.scan_button.configure(state="normal")
         self.open_button.configure(state="disabled")
         self.status.set("Browser wird gestartet …")
@@ -188,7 +188,7 @@ class BatchPrintApp:
         if not self._browser_ready():
             return
         self.status.set("Suche Unterseiten …")
-        self.worker.send("scan", self.url.get().strip())
+        self.worker.send("scan", self.url.strip())
 
     def print_selected(self):
         selected = self.page_list.curselection()
