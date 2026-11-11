@@ -60,58 +60,105 @@ class BrowserWorker(threading.Thread):
     def send(self, command, payload=None):
         self.commands.put((command, payload))
 
-    def run(self):
+        def run(self):
         try:
-            from playwright.sync_api import sync_playwright
+            from playwright.sync_api import (
+                sync_playwright,
+                Error as PlaywrightError,
+            )
 
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(
                     channel="msedge",
                     headless=False,
-                    args=["--kiosk-printing"]
+                    args=["--kiosk-printing"],
                 )
                 context = browser.new_context()
                 page = context.new_page()
 
-                self.events.put((
-                    "status",
-                    "Edge geöffnet. Bitte im Portal anmelden."
-                ))
-
                 while True:
-                    command, payload = self.commands.get()
+                    # Playwright auch während der manuellen Bedienung
+                    # regelmäßig Gelegenheit zur Ereignisverarbeitung geben.
+                    page.wait_for_timeout(100)
+
+                    try:
+                        command, payload = self.commands.get_nowait()
+                    except queue.Empty:
+                        continue
+
+                    if command == "close":
+                        browser.close()
+                        return
 
                     if command == "open":
                         page.goto(
                             payload,
-                            wait_until="domcontentloaded"
+                            wait_until="domcontentloaded",
                         )
                         self.events.put((
                             "status",
                             "Portal geöffnet. Bitte anmelden und "
-                            "die Wahlübersicht öffnen, dann Seiten suchen."
+                            "die Wahlübersicht öffnen, dann Seiten suchen.",
                         ))
 
                     elif command == "scan":
-                        current_url = page.url
-                        anchors = page.evaluate(
-                            """() => Array.from(
-                                document.querySelectorAll('a[href]')
-                            ).map(a => ({
-                                href: a.href,
-                                text: a.innerText || '',
-                                title: a.getAttribute('title') || ''
-                            }))"""
-                        )
-                        pages = extract_pages(current_url, anchors)
-                        self.events.put(("pages", pages))
+                        last_error = None
+
+                        for attempt in range(3):
+                            try:
+                                page.wait_for_load_state(
+                                    "domcontentloaded",
+                                    timeout=15000,
+                                )
+
+                                # Adresse und Links im selben Dokument lesen.
+                                snapshot = page.evaluate(
+                                    """() => ({
+                                        url: window.location.href,
+                                        anchors: Array.from(
+                                            document.querySelectorAll(
+                                                'a[href]'
+                                            )
+                                        ).map(a => ({
+                                            href: a.href,
+                                            text: a.innerText || '',
+                                            title:
+                                                a.getAttribute('title') || ''
+                                        }))
+                                    })"""
+                                )
+
+                                pages = extract_pages(
+                                    snapshot["url"],
+                                    snapshot["anchors"],
+                                )
+                                self.events.put(("pages", pages))
+                                last_error = None
+                                break
+
+                            except PlaywrightError as error:
+                                last_error = error
+
+                                navigation_error = (
+                                    "Execution context was destroyed"
+                                    in str(error)
+                                )
+
+                                if not navigation_error or attempt == 2:
+                                    break
+
+                                page.wait_for_timeout(300)
+
+                        if last_error is not None:
+                            self.events.put((
+                                "scan_error",
+                                "Die aktuelle Seite konnte nicht "
+                                "ausgelesen werden.\n\n"
+                                f"Details: {last_error}",
+                            ))
 
                     elif command == "print":
                         self._print_pages(page, payload)
-
-                    elif command == "close":
-                        browser.close()
-                        return
 
         except Exception as error:
             self.events.put(("error", str(error)))
