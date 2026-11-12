@@ -1,53 +1,62 @@
+import io
+import tempfile
 import unittest
+from pathlib import Path
 
-from wahltool_batch_druck import extract_pages, extract_pdf_targets
+from pypdf import PdfReader, PdfWriter
+from wahltool_batch_druck import merge_documents, sort_key
 
 
-class ExtractPagesTests(unittest.TestCase):
-    def test_extracts_unique_titled_subpages_on_the_main_path(self):
-        base_url = "https://start.schulportal.hessen.de/oberstufenwahl.php"
-        anchors = [
-            {"href": "?a=auswertung_pupil&w=34", "text": "  Auswertung\n Q1 "},
-            {"href": "?a=auswertung_pupil&w=34", "text": "Duplikat"},
-            {"href": "?a=auswertung_pupil&w=35", "text": "   ", "title": "Auswertung Q2"},
-            {"href": "/anderes.php?a=1", "text": "Andere Seite"},
-            {"href": "https://example.org/oberstufenwahl.php?a=1", "text": "Extern"},
-            {"href": "?a=leer", "text": ""},
+def make_pdf(page_count):
+    stream = io.BytesIO()
+    writer = PdfWriter()
+    for _ in range(page_count):
+        writer.add_blank_page(width=595, height=842)
+    writer.write(stream)
+    writer.close()
+    return stream.getvalue()
+
+
+class SortingTests(unittest.TestCase):
+    def test_natural_class_and_name_order(self):
+        entries = [
+            {"group": "12b", "last": "Z", "first": "A"},
+            {"group": "9a", "last": "B", "first": "A"},
+            {"group": "12b", "last": "A", "first": "B"},
+            {"group": "12b", "last": "A", "first": "A"},
         ]
-
+        result = sorted(entries, key=sort_key)
         self.assertEqual(
-            extract_pages(base_url, anchors),
-            [
-                {
-                    "title": "Auswertung Q1",
-                    "url": base_url + "?a=auswertung_pupil&w=34",
-                },
-                {
-                    "title": "Auswertung Q2",
-                    "url": base_url + "?a=auswertung_pupil&w=35",
-                },
-            ],
+            [(e["group"], e["last"], e["first"]) for e in result],
+            [("9a", "B", "A"), ("12b", "A", "A"),
+             ("12b", "A", "B"), ("12b", "Z", "A")],
         )
 
 
-class ExtractPdfTargetsTests(unittest.TestCase):
-    def test_keeps_same_origin_pdfs_and_embedded_documents(self):
-        page_url = "https://start.schulportal.hessen.de/oberstufenwahl.php?a=auswertung"
-        candidates = [
-            {"href": "/dokumente/wahl.PDF", "kind": "a"},
-            {"href": "https://example.org/privat.pdf", "kind": "a"},
-            {"href": "/viewer?id=7", "kind": "iframe"},
-            {"href": "/not-a-pdf", "kind": "a"},
-            {"href": "/viewer?id=7", "kind": "iframe"},
-        ]
+class MergeTests(unittest.TestCase):
+    def test_keeps_all_pages(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "collection.pdf"
+            count = merge_documents([make_pdf(1), make_pdf(2)], str(path))
+            self.assertEqual(count, 3)
+            self.assertEqual(len(PdfReader(path).pages), 3)
 
-        self.assertEqual(
-            extract_pdf_targets(page_url, candidates),
-            [
-                "https://start.schulportal.hessen.de/dokumente/wahl.PDF",
-                "https://start.schulportal.hessen.de/viewer?id=7",
-            ],
-        )
+    def test_invalid_pdf_preserves_existing_destination(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "collection.pdf"
+            original = make_pdf(1)
+            path.write_bytes(original)
+            with self.assertRaises(Exception):
+                merge_documents([make_pdf(1), b"Not a PDF"], str(path))
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(sorted(p.name for p in Path(folder).iterdir()), ["collection.pdf"])
+
+    def test_empty_selection_creates_no_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "collection.pdf"
+            with self.assertRaises(ValueError):
+                merge_documents([], str(path))
+            self.assertFalse(path.exists())
 
 
 if __name__ == "__main__":
