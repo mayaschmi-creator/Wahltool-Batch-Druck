@@ -15,12 +15,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements.txt
-      - run: python -m unittest discover -s tests -v
-      - run: python -m PyInstaller --noconfirm --clean --windowed --onefile --collect-all playwright --name WahltoolBatchDruck wahltool_batch_druck.py
-      - uses: actions/upload-artifact@v4
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Check Python syntax
+        run: python -m py_compile wahltool_batch_druck.py
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Build executable
+        run: python -m PyInstaller --noconfirm --clean --windowed --onefile --noupx --collect-all playwright --collect-all pypdf --name WahltoolBatchDruck wahltool_batch_druck.py
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
         with:
           name: WahltoolBatchDruck-windows
           path: dist/WahltoolBatchDruck.exe
+          if-no-files-found: error
+          retention-days: 14
